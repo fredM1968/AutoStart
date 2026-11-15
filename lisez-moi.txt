@@ -1,0 +1,22 @@
+AutoStart — plugin NINA 3.2
+===========================
+
+Compilation : ouvrir NINA.Plugin.AutoStart.slnx dans Visual Studio, plateforme x64, Générer.
+La DLL est copiée automatiquement dans %LOCALAPPDATA%\NINA\Plugins\3.0.0\AutoStart.
+
+Utilisation : NINA > Options > Plugins > AutoStart > « Ouvrir la fenêtre AutoStart ».
+  - Interrupteur ON/OFF : inscrit / retire NINA du démarrage de Windows
+    (clé HKCU\Software\Microsoft\Windows\CurrentVersion\Run, valeur « NINA AutoStart »).
+  - « Choisir la séquence… » : séquence avancée (.json) ou simple (.xml = une cible, .ninaTargetSet = ensemble de cibles).
+  - Profil NINA ouvert au démarrage, connexion du matériel, compte à rebours annulable.
+  - « Tester maintenant » : déroule la procédure sans redémarrer le PC.
+
+Fonctionnement : au démarrage de Windows, cmd.exe pose NINA_AUTOSTART=1 puis ouvre NINA (--profileid).
+Le plugin voit ce drapeau : il attend le séquenceur, affiche le compte à rebours, connecte le matériel,
+charge la séquence et la démarre dans l'onglet Imagerie. Une ouverture manuelle de NINA ne lance rien.
+
+Mini-PC sans écran : la clé Run s'exécute à l'ouverture de session ; activer l'ouverture de session
+automatique de Windows (netplwiz, ou Sysinternals Autologon).
+
+Journal : chaque étape est écrite dans le log NINA avec le préfixe « AutoStart : ».
+Réglages : %LOCALAPPDATA%\NINA\AutoStart\autostart.json

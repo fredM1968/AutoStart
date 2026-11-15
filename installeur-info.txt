@@ -1,0 +1,20 @@
+﻿AutoStart — plugin pour NINA 3.2
+================================
+
+AutoStart lance NINA au démarrage du PC (ouverture de session Windows) puis, après un
+compte à rebours annulable, connecte le matériel et exécute la séquence choisie
+(séquence simple ou avancée).
+
+Après l'installation :
+  1. Démarrez NINA.
+  2. Options > Plugins > AutoStart > « Ouvrir la fenêtre AutoStart ».
+  3. Choisissez la séquence, réglez les options, puis passez l'interrupteur sur ON.
+  4. « Tester maintenant » permet de vérifier la procédure sans redémarrer le PC.
+
+Une ouverture manuelle de NINA ne lance jamais la séquence.
+
+PC sans écran : le lancement a lieu à l'ouverture de session Windows. Activez l'ouverture
+de session automatique (netplwiz, ou l'outil Autologon de Microsoft Sysinternals).
+
+Désinstallation : NINA est automatiquement retiré du démarrage de Windows.
+Les réglages restent dans %LOCALAPPDATA%\NINA\AutoStart.

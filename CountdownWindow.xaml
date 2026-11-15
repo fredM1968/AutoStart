@@ -1,0 +1,18 @@
+<Window x:Class="NINA.Plugin.AutoStart.CountdownWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AutoStart" Width="460" SizeToContent="Height" ResizeMode="NoResize"
+        Background="#FF2F3A3D" Foreground="#FFE8E8E8" Topmost="True" ShowInTaskbar="True"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="18">
+        <TextBlock Text="Lancement automatique" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+        <TextBlock x:Name="SequenceText" TextWrapping="Wrap" Margin="0,0,0,4" />
+        <TextBlock x:Name="ConnectText" TextWrapping="Wrap" Margin="0,0,0,10" Opacity="0.8" />
+        <TextBlock x:Name="CountText" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,4,0,8" />
+        <ProgressBar x:Name="Progress" Height="8" Margin="0,0,0,14" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Padding="18,4" MinWidth="110" Content="Lancer maintenant" Margin="0,0,8,0" Click="Now_Click" />
+            <Button Padding="18,4" MinWidth="110" Content="Annuler" IsCancel="True" Click="Cancel_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>
