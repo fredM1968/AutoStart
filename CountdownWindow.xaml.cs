@@ -5,20 +5,25 @@ using System.Windows.Threading;
 
 namespace NINA.Plugin.AutoStart {
 
-    /// <summary>Compte à rebours avant le lancement : "Annuler" arrête tout, "Lancer maintenant" écourte l'attente.</summary>
+    /// <summary>
+    /// Compte à rebours annulable, utilisé avant le lancement de la séquence et avant la coupure de l'alimentation.
+    /// "Annuler" arrête tout, le bouton d'action écourte l'attente.
+    /// </summary>
     public partial class CountdownWindow : Window {
         private readonly TaskCompletionSource<bool> result = new();
         private readonly DispatcherTimer timer;
         private readonly int total;
         private int remaining;
 
-        private CountdownWindow(string sequenceName, int seconds, bool connect) {
+        private CountdownWindow(string title, string message, string detail, string actionLabel, int seconds) {
             InitializeComponent();
             WindowTheme.Apply(this);
             total = Math.Max(1, seconds);
             remaining = total;
-            SequenceText.Text = $"La séquence « {sequenceName} » va démarrer.";
-            ConnectText.Text = connect ? "Le matériel sera connecté juste avant." : "Le matériel doit déjà être connecté.";
+            TitleText.Text = title;
+            SequenceText.Text = message;
+            ConnectText.Text = detail;
+            NowButton.Content = actionLabel;
             Progress.Maximum = total;
             Refresh();
 
@@ -32,9 +37,9 @@ namespace NINA.Plugin.AutoStart {
             timer.Start();
         }
 
-        /// <summary>À appeler sur le fil de l'interface. Renvoie true pour lancer, false si annulé.</summary>
-        public static Task<bool> ShowAsync(string sequenceName, int seconds, bool connect) {
-            var w = new CountdownWindow(sequenceName, seconds, connect);
+        /// <summary>À appeler sur le fil de l'interface. Renvoie true pour continuer, false si annulé.</summary>
+        public static Task<bool> ShowAsync(string title, string message, string detail, string actionLabel, int seconds) {
+            var w = new CountdownWindow(title, message, detail, actionLabel, seconds);
             if (Application.Current?.MainWindow is Window main && main.IsLoaded && main != w) {
                 w.Owner = main;
                 w.WindowStartupLocation = WindowStartupLocation.CenterOwner;

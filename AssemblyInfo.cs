@@ -7,13 +7,14 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("fredM1968")]
 [assembly: AssemblyProduct("AutoStart")]
 [assembly: AssemblyCopyright("Copyright © 2026 fredM1968")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyFileVersion("0.2.0.0")]
 [assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.0")]
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
 [assembly: AssemblyMetadata("LicenseURL", "https://www.mozilla.org/en-US/MPL/2.0/")]
 [assembly: AssemblyMetadata("Repository", "https://github.com/fredM1968/nina-autostart")]
-[assembly: AssemblyMetadata("Tags", "Démarrage,Automatisation,Séquence")]
+[assembly: AssemblyMetadata("Tags", "Démarrage,Automatisation,Séquence,Alimentation")]
 [assembly: AssemblyMetadata("LongDescription", @"AutoStart ajoute NINA au démarrage de Windows (ouverture de session) et, une fois NINA ouvert, connecte le matériel puis lance la séquence choisie (simple ou avancée), après un compte à rebours annulable.
+Il peut aussi piloter une prise connectée TP-Link Kasa (HS100…) : allumage du matériel au lancement, coupure à la fin de la séquence.
 Les réglages se font dans Options > Plugins > AutoStart > « Ouvrir la fenêtre AutoStart ».")]
 [assembly: ComVisible(false)]

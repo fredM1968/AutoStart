@@ -20,3 +20,12 @@ automatique de Windows (netplwiz, ou Sysinternals Autologon).
 
 Journal : chaque étape est écrite dans le log NINA avec le préfixe « AutoStart : ».
 Réglages : %LOCALAPPDATA%\NINA\AutoStart\autostart.json
+
+Alimentation (prise connectée TP-Link Kasa : HS100, HS103, HS105, HS110, KP105, KP115…)
+  - Interrupteur ON/OFF : coupe la prise à la fin de toute séquence (simple ou avancée),
+    après un compte à rebours annulable ; déconnexion du matériel dans NINA avant la coupure.
+  - Option : allumer la prise au lancement automatique, avant de connecter le matériel
+    (attente PowerOnWaitSeconds = 20 s, réglable dans autostart.json).
+  - SCAN : diffusion UDP sur le port 9999, puis balayage TCP du réseau local si rien ne répond.
+  - Allumer / Éteindre : tests manuels.
+  - Protocole local Kasa (port 9999). Les prises Tapo (protocole KLAP) ne sont pas prises en charge.

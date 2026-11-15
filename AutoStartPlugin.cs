@@ -19,6 +19,7 @@ namespace NINA.Plugin.AutoStart {
     public class AutoStartPlugin : PluginBase {
         private readonly NinaServices nina;
         private readonly AutoStartRunner runner;
+        private readonly PowerManager power;
         private AutoStartWindow window;
 
         [ImportingConstructor]
@@ -44,6 +45,9 @@ namespace NINA.Plugin.AutoStart {
                 SafetyMonitor = safetyMonitorMediator
             };
             runner = new AutoStartRunner(nina);
+            power = new PowerManager(nina, runner.IsAnySequenceRunning);
+            runner.Power = power;
+            power.AttachToSequencer();
 
             var settings = AutoStartSettings.Load();
             bool startedByWindows = WindowsStartup.ConsumeStartupFlag();

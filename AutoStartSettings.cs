@@ -22,6 +22,20 @@ namespace NINA.Plugin.AutoStart {
         public bool ConnectEquipment { get; set; } = true;
         public int DelaySeconds { get; set; } = 30;
 
+        // --- Alimentation du matériel par prise connectée ---
+        public bool PowerEnabled { get; set; }
+        public PlugBrand PlugBrand { get; set; } = PlugBrand.TpLinkKasa;
+        public string PlugAddress { get; set; } = string.Empty;
+        /// <summary>Allume la prise au lancement automatique, avant la connexion du matériel.</summary>
+        public bool PowerOnAtStartup { get; set; } = true;
+        /// <summary>Attente après l'allumage pour que les appareils USB apparaissent dans Windows.</summary>
+        public int PowerOnWaitSeconds { get; set; } = 20;
+        /// <summary>Compte à rebours (annulable) entre la fin de la séquence et la coupure.</summary>
+        public int PowerOffDelaySeconds { get; set; } = 60;
+        public bool DisconnectBeforePowerOff { get; set; } = true;
+        /// <summary>Ne coupe pas si la séquence a été arrêtée à la main.</summary>
+        public bool PowerOffOnlyIfCompleted { get; set; } = true;
+
         public static string Folder =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NINA", "AutoStart");
 
@@ -47,6 +61,8 @@ namespace NINA.Plugin.AutoStart {
                     var s = JsonSerializer.Deserialize<AutoStartSettings>(File.ReadAllText(FilePath));
                     if (s != null) {
                         if (s.DelaySeconds < 0) s.DelaySeconds = 0;
+                        if (s.PowerOffDelaySeconds < 0) s.PowerOffDelaySeconds = 0;
+                        if (s.PowerOnWaitSeconds < 0) s.PowerOnWaitSeconds = 0;
                         return s;
                     }
                 }

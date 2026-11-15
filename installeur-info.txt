@@ -18,3 +18,7 @@ de session automatique (netplwiz, ou l'outil Autologon de Microsoft Sysinternals
 
 Désinstallation : NINA est automatiquement retiré du démarrage de Windows.
 Les réglages restent dans %LOCALAPPDATA%\NINA\AutoStart.
+
+Alimentation : AutoStart peut piloter une prise connectée TP-Link Kasa (HS100…) pour
+allumer le matériel au lancement et couper son alimentation à la fin de la séquence.
+Le PC qui fait tourner NINA ne doit pas être branché sur cette prise.

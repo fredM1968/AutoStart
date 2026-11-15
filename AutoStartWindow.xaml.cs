@@ -2,8 +2,14 @@ using NINA.Profile.Interfaces;
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace NINA.Plugin.AutoStart {
 
@@ -54,9 +60,62 @@ namespace NINA.Plugin.AutoStart {
             }
         }
 
+        // --- Alimentation ---
+
+        public bool PowerEnabled => settings.PowerEnabled;
+
+        public IReadOnlyList<PlugBrandItem> Brands => SmartPlugFactory.Brands;
+
+        public PlugBrand PlugBrand {
+            get => settings.PlugBrand;
+            set { settings.PlugBrand = value; Changed(); }
+        }
+
+        public string PlugAddress {
+            get => settings.PlugAddress;
+            set { settings.PlugAddress = (value ?? string.Empty).Trim(); Changed(); }
+        }
+
+        public bool PowerOnAtStartup {
+            get => settings.PowerOnAtStartup;
+            set { settings.PowerOnAtStartup = value; Changed(); }
+        }
+
+        public bool DisconnectBeforePowerOff {
+            get => settings.DisconnectBeforePowerOff;
+            set { settings.DisconnectBeforePowerOff = value; Changed(); }
+        }
+
+        public bool PowerOffOnlyIfCompleted {
+            get => settings.PowerOffOnlyIfCompleted;
+            set { settings.PowerOffOnlyIfCompleted = value; Changed(); }
+        }
+
+        public string PowerOffDelayText {
+            get => settings.PowerOffDelaySeconds.ToString();
+            set {
+                if (int.TryParse(value, out var s) && s >= 0 && s <= 3600) {
+                    settings.PowerOffDelaySeconds = s;
+                    Changed();
+                }
+            }
+        }
+
+        private string plugStateText = "État de la prise : inconnu";
+        public string PlugStateText {
+            get => plugStateText;
+            private set { plugStateText = value; OnPropertyChanged(); }
+        }
+
         public string StatusText {
             get {
-                if (!IsOn) return "Désactivé : NINA ne se lancera pas tout seul au démarrage du PC.";
+                var power = !settings.PowerEnabled
+                    ? string.Empty
+                    : string.IsNullOrWhiteSpace(settings.PlugAddress)
+                        ? "\n⚠ Alimentation : aucune adresse IP de prise renseignée."
+                        : $"\nAlimentation : coupure de la prise {settings.PlugAddress} à la fin de chaque séquence"
+                          + (settings.PowerOffDelaySeconds > 0 ? $" (après {settings.PowerOffDelaySeconds} s)." : ".");
+                if (!IsOn) return "Désactivé : NINA ne se lancera pas tout seul au démarrage du PC." + power;
                 var seq = settings.Kind == SequenceKind.None
                     ? "sans lancer de séquence"
                     : $"puis lancera « {Path.GetFileName(settings.SequencePath)} »"
@@ -65,7 +124,7 @@ namespace NINA.Plugin.AutoStart {
                     ? "\n⚠ Le fichier de séquence est introuvable."
                     : string.Empty;
                 return $"Activé : NINA s'ouvrira à l'ouverture de session Windows {seq}.{warn}\n" +
-                       "Sur un PC sans écran, active l'ouverture de session automatique de Windows.";
+                       "Sur un PC sans écran, active l'ouverture de session automatique de Windows." + power;
             }
         }
 
@@ -146,6 +205,81 @@ namespace NINA.Plugin.AutoStart {
         }
 
         private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+        // ------------------------------------------------------------ alimentation
+
+        private void PowerToggle_Click(object sender, RoutedEventArgs e) {
+            if (!settings.PowerEnabled && !IsValidAddress(settings.PlugAddress)) {
+                MessageBox.Show(this, "Renseigne d'abord l'adresse IP de la prise (ou utilise SCAN).", "AutoStart",
+                                MessageBoxButton.OK, MessageBoxImage.Information);
+                OnPropertyChanged(nameof(PowerEnabled));
+                return;
+            }
+            settings.PowerEnabled = !settings.PowerEnabled;
+            Changed();
+        }
+
+        private async void Scan_Click(object sender, RoutedEventArgs e) {
+            ScanButton.IsEnabled = false;
+            FoundList.Visibility = Visibility.Collapsed;
+            try {
+                var progress = new Progress<string>(m => PlugStateText = m);
+                var found = await Task.Run(() => SmartPlugFactory.DiscoverAsync(settings.PlugBrand, progress, CancellationToken.None));
+                if (found.Count == 0) {
+                    PlugStateText = "Aucune prise trouvée. Vérifie qu'elle est sur le même réseau que ce PC.";
+                } else if (found.Count == 1) {
+                    PlugAddress = found[0].Address;
+                    PlugStateText = $"Trouvée : {found[0]}";
+                } else {
+                    FoundList.ItemsSource = found;
+                    FoundList.Visibility = Visibility.Visible;
+                    var current = found.FirstOrDefault(f => f.Address == settings.PlugAddress);
+                    if (current != null) FoundList.SelectedItem = current;
+                    PlugStateText = $"{found.Count} prises trouvées : choisis la bonne dans la liste.";
+                }
+            } catch (Exception ex) {
+                PlugStateText = $"Recherche impossible : {ex.Message}";
+            } finally {
+                ScanButton.IsEnabled = true;
+            }
+        }
+
+        private void FoundList_SelectionChanged(object sender, SelectionChangedEventArgs e) {
+            if (FoundList.SelectedItem is FoundPlug plug) {
+                PlugAddress = plug.Address;
+                PlugStateText = $"Choisie : {plug}";
+            }
+        }
+
+        private void On_Click(object sender, RoutedEventArgs e) => _ = TestPowerAsync(true);
+
+        private void Off_Click(object sender, RoutedEventArgs e) => _ = TestPowerAsync(false);
+
+        private async Task TestPowerAsync(bool on) {
+            if (!IsValidAddress(settings.PlugAddress)) {
+                PlugStateText = "Adresse IP invalide.";
+                return;
+            }
+            if (!on && MessageBox.Show(this, "Couper maintenant l'alimentation du matériel ?\nDéconnecte-le d'abord dans NINA s'il est connecté.",
+                                       "AutoStart", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) {
+                return;
+            }
+            OnButton.IsEnabled = OffButton.IsEnabled = false;
+            try {
+                PlugStateText = on ? "Allumage…" : "Extinction…";
+                await Task.Run(() => PowerManager.SetPowerAsync(settings, on));
+                var state = await Task.Run(() => PowerManager.GetPowerAsync(settings));
+                PlugStateText = $"État de la prise : {(state ? "allumée" : "éteinte")}";
+            } catch (Exception ex) {
+                PlugStateText = $"Erreur : {ex.Message}";
+            } finally {
+                OnButton.IsEnabled = OffButton.IsEnabled = true;
+            }
+        }
+
+        private static bool IsValidAddress(string address) =>
+            !string.IsNullOrWhiteSpace(address) && IPAddress.TryParse(address.Trim(), out var ip)
+            && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
 
         // ------------------------------------------------------------ utilitaires
 

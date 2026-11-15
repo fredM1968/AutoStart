@@ -1,7 +1,7 @@
 <Window x:Class="NINA.Plugin.AutoStart.AutoStartWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AutoStart" Width="600" SizeToContent="Height" ResizeMode="NoResize"
+        Title="AutoStart" Width="640" SizeToContent="Height" ResizeMode="NoResize"
         Background="#FF2F3A3D" Foreground="#FFE8E8E8"
         WindowStartupLocation="CenterOwner">
     <Window.Resources>
@@ -81,12 +81,82 @@
                     <Button DockPanel.Dock="Right" Padding="10,4" Content="Utiliser le profil actif" Click="Profile_Click" />
                     <TextBlock Text="{Binding ProfileText}" VerticalAlignment="Center" />
                 </DockPanel>
-                <CheckBox IsChecked="{Binding ConnectEquipment}" Margin="0,0,0,8" Foreground="#FFE8E8E8"
-                          Content="Connecter tout le matériel avant de lancer la séquence" />
+                <DockPanel Margin="0,0,0,8">
+                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding ConnectEquipment}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock Text="Connecter tout le matériel avant de lancer la séquence" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Compte à rebours avant le lancement (s) :" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <TextBox Text="{Binding DelayText, UpdateSourceTrigger=PropertyChanged}" Width="60" />
                     <TextBlock Text="  (0 = immédiat ; annulable pendant l'attente)" VerticalAlignment="Center" Opacity="0.7" />
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- 4. Alimentation du matériel -->
+        <GroupBox Header="Alimentation du matériel (prise connectée)">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,10">
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource OnOffToggle}"
+                                  IsChecked="{Binding PowerEnabled, Mode=OneWay}" Click="PowerToggle_Click"
+                                  ToolTip="ON : la prise est coupée à la fin de chaque séquence (et allumée au lancement automatique si l'option est cochée)" />
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                        <TextBlock Text="Couper l'alimentation à la fin de la séquence" FontWeight="SemiBold" />
+                        <TextBlock Text="séquence simple ou avancée, lancée à la main ou par AutoStart" Opacity="0.75" />
+                    </StackPanel>
+                </DockPanel>
+
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="100" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Prise :" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                              ItemsSource="{Binding Brands}" DisplayMemberPath="DisplayName" SelectedValuePath="Brand"
+                              SelectedValue="{Binding PlugBrand}" />
+
+                    <TextBlock Grid.Row="1" Text="Adresse IP :" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,6" VerticalContentAlignment="Center"
+                             Text="{Binding PlugAddress, UpdateSourceTrigger=LostFocus}" ToolTip="Exemple : 192.168.1.147" />
+                    <Button x:Name="ScanButton" Grid.Row="1" Grid.Column="2" Margin="8,0,0,6" Padding="18,4" Content="SCAN"
+                            Click="Scan_Click" ToolTip="Cherche les prises sur le réseau et renseigne l'adresse IP" />
+
+                    <ComboBox x:Name="FoundList" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                              Visibility="Collapsed" SelectionChanged="FoundList_SelectionChanged"
+                              ToolTip="Plusieurs prises trouvées : choisis celle du matériel" />
+
+                    <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                        <Button x:Name="OnButton" Padding="14,4" Content="Allumer" Margin="0,0,8,0" Click="On_Click" />
+                        <Button x:Name="OffButton" Padding="14,4" Content="Éteindre" Margin="0,0,12,0" Click="Off_Click" />
+                        <TextBlock Text="{Binding PlugStateText}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="330" />
+                    </StackPanel>
+                </Grid>
+
+                <DockPanel Margin="0,0,0,6">
+                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding PowerOnAtStartup}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock Text="Allumer la prise au lancement automatique, avant de connecter le matériel" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding DisconnectBeforePowerOff}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock Text="Déconnecter le matériel dans NINA avant de couper" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding PowerOffOnlyIfCompleted}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock Text="Ne pas couper si la séquence a été arrêtée à la main" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Compte à rebours avant la coupure (s) :" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox Text="{Binding PowerOffDelayText, UpdateSourceTrigger=PropertyChanged}" Width="60" />
+                    <TextBlock Text="  (annulable)" VerticalAlignment="Center" Opacity="0.7" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>

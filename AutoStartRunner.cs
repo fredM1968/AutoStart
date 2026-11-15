@@ -58,6 +58,9 @@ namespace NINA.Plugin.AutoStart {
 
         public bool IsRunning => running == 1;
 
+        /// <summary>Gestion de la prise connectée (allumage avant la connexion du matériel).</summary>
+        public PowerManager Power { get; set; }
+
         public void Start(AutoStartSettings settings, bool isTest) {
             if (Interlocked.Exchange(ref running, 1) == 1) return;
             _ = Task.Run(async () => {
@@ -95,12 +98,22 @@ namespace NINA.Plugin.AutoStart {
 
             // Compte à rebours : laisse le temps de reprendre la main à distance (AnyDesk...) et d'annuler.
             if (settings.DelaySeconds > 0) {
-                var go = await OnUi(() => CountdownWindow.ShowAsync(Path.GetFileName(settings.SequencePath), settings.DelaySeconds, settings.ConnectEquipment));
+                var go = await OnUi(() => CountdownWindow.ShowAsync(
+                    "Lancement automatique",
+                    $"La séquence « {Path.GetFileName(settings.SequencePath)} » va démarrer.",
+                    (settings.PowerEnabled && settings.PowerOnAtStartup ? "La prise sera allumée, puis " : "")
+                        + (settings.ConnectEquipment ? "le matériel sera connecté juste avant." : "le matériel doit déjà être connecté."),
+                    "Lancer maintenant",
+                    settings.DelaySeconds));
                 if (!await go) {
                     Logger.Info("AutoStart : lancement annulé par l'utilisateur.");
                     Notification.ShowInformation("AutoStart : lancement de la séquence annulé.");
                     return;
                 }
+            }
+
+            if (Power != null) {
+                await Power.PowerOnForStartupAsync(settings);
             }
 
             if (settings.ConnectEquipment) {
@@ -139,7 +152,7 @@ namespace NINA.Plugin.AutoStart {
             return field?.GetValue(nina.Sequence) as ISequenceNavigationVM;
         }
 
-        private bool IsAnySequenceRunning() {
+        public bool IsAnySequenceRunning() {
             try {
                 if (nina.Sequence.IsAdvancedSequenceRunning()) return true;
                 var simple = GetNavigation()?.SimpleSequenceVM;
