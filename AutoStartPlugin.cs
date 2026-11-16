@@ -78,7 +78,7 @@ namespace NINA.Plugin.AutoStart {
                     window.Activate();
                     return;
                 }
-                window = new AutoStartWindow(AutoStartSettings.Load(), nina.Profile, runner);
+                window = new AutoStartWindow(AutoStartSettings.Load(), nina, runner);
                 if (Application.Current.MainWindow is Window main && main.IsLoaded) window.Owner = main;
                 window.Closed += (s, e) => window = null;
                 window.Show();

@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 
 namespace NINA.Plugin.AutoStart {
@@ -20,7 +21,31 @@ namespace NINA.Plugin.AutoStart {
 
         private static int ColorRef(byte r, byte g, byte b) => r | (g << 8) | (b << 16);
 
+        /// <summary>
+        /// Le modèle de bouton de NINA ignore Padding et ContentTemplate : le texte touche les bords.
+        /// On remplace donc le texte de chaque bouton par un TextBlock avec une marge intérieure.
+        /// </summary>
+        private static void PadButtons(DependencyObject parent) {
+            foreach (var child in LogicalTreeHelper.GetChildren(parent)) {
+                if (child is not DependencyObject d) continue;
+                if (d is Button b) {
+                    if (b.Content is string text) {
+                        b.Content = new TextBlock {
+                            Text = text,
+                            Margin = new Thickness(14, 4, 14, 4),
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                    }
+                    if (b.VerticalAlignment == VerticalAlignment.Stretch) b.VerticalAlignment = VerticalAlignment.Center;
+                    continue;
+                }
+                PadButtons(d);
+            }
+        }
+
         public static void Apply(Window window) {
+            window.Loaded += (s, e) => PadButtons(window);
             window.SourceInitialized += (s, e) => {
                 try {
                     IntPtr hwnd = new WindowInteropHelper(window).Handle;

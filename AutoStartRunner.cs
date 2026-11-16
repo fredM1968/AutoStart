@@ -118,7 +118,7 @@ namespace NINA.Plugin.AutoStart {
 
             if (settings.ConnectEquipment) {
                 Notification.ShowInformation("AutoStart : connexion du matériel…");
-                await ConnectAllAsync();
+                await ConnectAllAsync(settings);
             }
 
             if (kind == SequenceKind.Advanced) {
@@ -165,18 +165,12 @@ namespace NINA.Plugin.AutoStart {
 
         // ---------------------------------------------------------------- matériel
 
-        private async Task ConnectAllAsync() {
-            await Connect("caméra", () => nina.Camera.GetInfo().Connected, nina.Camera.Connect);
-            await Connect("roue à filtres", () => nina.FilterWheel.GetInfo().Connected, nina.FilterWheel.Connect);
-            await Connect("monture", () => nina.Telescope.GetInfo().Connected, nina.Telescope.Connect);
-            await Connect("focuser", () => nina.Focuser.GetInfo().Connected, nina.Focuser.Connect);
-            await Connect("rotateur", () => nina.Rotator.GetInfo().Connected, nina.Rotator.Connect);
-            await Connect("guidage", () => nina.Guider.GetInfo().Connected, nina.Guider.Connect);
-            await Connect("panneau de flats", () => nina.FlatDevice.GetInfo().Connected, nina.FlatDevice.Connect);
-            await Connect("météo", () => nina.Weather.GetInfo().Connected, nina.Weather.Connect);
-            await Connect("switch", () => nina.Switch.GetInfo().Connected, nina.Switch.Connect);
-            await Connect("dôme", () => nina.Dome.GetInfo().Connected, nina.Dome.Connect);
-            await Connect("moniteur de sécurité", () => nina.SafetyMonitor.GetInfo().Connected, nina.SafetyMonitor.Connect);
+        private async Task ConnectAllAsync(AutoStartSettings settings) {
+            var keys = settings.EffectiveDevices(nina.Profile.ActiveProfile);
+            Logger.Info($"AutoStart : équipements à connecter : {EquipmentCatalog.Summary(keys)}");
+            foreach (var item in EquipmentCatalog.All.Where(e => keys.Contains(e.Key))) {
+                await Connect(item.Label, () => item.IsConnected(nina), () => item.Connect(nina));
+            }
             await Task.Delay(3000);
         }
 

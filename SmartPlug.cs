@@ -18,6 +18,37 @@ namespace NINA.Plugin.AutoStart {
         Task SetStateAsync(bool on, CancellationToken ct = default);
     }
 
+    public enum ScheduleRepeat {
+        Once,
+        Daily,
+        Days
+    }
+
+    /// <summary>
+    /// Allumage programmé, en heure du PC.
+    /// Days == null : une seule fois, à la date et l'heure de Time.
+    /// Sinon : chaque jour coché (indice 0 = dimanche, comme DayOfWeek), à l'heure de Time (la date est ignorée).
+    /// </summary>
+    public record PlugSchedule(DateTime Time, bool[] Days) {
+        public bool IsRepeating => Days != null;
+    }
+
+    /// <param name="ClockOffset">Écart entre l'horloge de la prise et celle du PC.</param>
+    public record ScheduleResult(PlugSchedule Schedule, TimeSpan ClockOffset);
+
+    /// <summary>
+    /// Prise capable d'enregistrer elle-même une heure d'allumage (programmateur interne) :
+    /// l'allumage a lieu même si le PC ou NINA sont éteints.
+    /// </summary>
+    public interface ISchedulablePlug {
+        /// <summary>Programme l'allumage. Remplace la programmation précédente du plugin.</summary>
+        Task<ScheduleResult> ScheduleAsync(PlugSchedule schedule, CancellationToken ct = default);
+        /// <summary>Supprime la programmation créée par le plugin.</summary>
+        Task CancelScheduleAsync(CancellationToken ct = default);
+        /// <summary>Programmation du plugin actuellement enregistrée dans la prise (heure du PC), ou null.</summary>
+        Task<PlugSchedule> GetScheduleAsync(CancellationToken ct = default);
+    }
+
     /// <summary>Prise trouvée par la recherche sur le réseau.</summary>
     public record FoundPlug(string Address, string Alias, string Model, bool? IsOn) {
         public override string ToString() {

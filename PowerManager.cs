@@ -41,6 +41,19 @@ namespace NINA.Plugin.AutoStart {
             throw last ?? new InvalidOperationException("prise injoignable");
         }
 
+        private static ISchedulablePlug Schedulable(AutoStartSettings settings) =>
+            SmartPlugFactory.Create(settings.PlugBrand, settings.PlugAddress) as ISchedulablePlug
+            ?? throw new NotSupportedException("cette prise ne permet pas de programmer un allumage");
+
+        public static Task<ScheduleResult> ScheduleOnAsync(AutoStartSettings settings, PlugSchedule schedule, CancellationToken ct = default) =>
+            Schedulable(settings).ScheduleAsync(schedule, ct);
+
+        public static Task CancelScheduleAsync(AutoStartSettings settings, CancellationToken ct = default) =>
+            Schedulable(settings).CancelScheduleAsync(ct);
+
+        public static Task<PlugSchedule> GetScheduleAsync(AutoStartSettings settings, CancellationToken ct = default) =>
+            Schedulable(settings).GetScheduleAsync(ct);
+
         public static Task<bool> GetPowerAsync(AutoStartSettings settings, CancellationToken ct = default) =>
             SmartPlugFactory.Create(settings.PlugBrand, settings.PlugAddress).GetStateAsync(ct);
 

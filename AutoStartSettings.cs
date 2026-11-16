@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -20,9 +21,28 @@ namespace NINA.Plugin.AutoStart {
         public string ProfileId { get; set; } = string.Empty;
         public string ProfileName { get; set; } = string.Empty;
         public bool ConnectEquipment { get; set; } = true;
+        /// <summary>Équipements à connecter (clés de EquipmentCatalog.All). null = pas encore choisi : ceux du profil.</summary>
+        public List<string> DevicesToConnect { get; set; }
+
+        public List<string> EffectiveDevices(NINA.Profile.Interfaces.IProfile profile) =>
+            DevicesToConnect ?? EquipmentCatalog.FromProfile(profile);
         public int DelaySeconds { get; set; } = 30;
 
         // --- Alimentation du matériel par prise connectée ---
+        /// <summary>Allumage programmé dans la prise (programmateur interne de la prise).</summary>
+        public bool ScheduleOnEnabled { get; set; }
+        /// <summary>Date et heure d'allumage voulues (heure du PC).</summary>
+        public DateTime? ScheduleOnTime { get; set; }
+        public ScheduleRepeat ScheduleRepeat { get; set; } = ScheduleRepeat.Once;
+        /// <summary>Jours choisis pour le mode « Certains jours » (indice 0 = dimanche).</summary>
+        public bool[] ScheduleDays { get; set; } = { true, true, true, true, true, true, true };
+
+        /// <summary>Programmation voulue, sous la forme envoyée à la prise.</summary>
+        public PlugSchedule WantedSchedule(DateTime time) => ScheduleRepeat switch {
+            ScheduleRepeat.Daily => new PlugSchedule(time, new[] { true, true, true, true, true, true, true }),
+            ScheduleRepeat.Days => new PlugSchedule(time, (bool[])(ScheduleDays?.Length == 7 ? ScheduleDays : new bool[7]).Clone()),
+            _ => new PlugSchedule(time, null)
+        };
         public bool PowerEnabled { get; set; }
         public PlugBrand PlugBrand { get; set; } = PlugBrand.TpLinkKasa;
         public string PlugAddress { get; set; } = string.Empty;

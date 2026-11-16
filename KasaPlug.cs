@@ -17,8 +17,10 @@ namespace NINA.Plugin.AutoStart {
     /// Même protocole que les scripts PowerShell switchON / switchOFF : HS100, HS103, HS105, HS110, KP105, KP115, HS300…
     /// Les prises Tapo et certaines Kasa récentes (protocole KLAP, pas de port 9999) ne sont pas prises en charge.
     /// </summary>
-    public sealed class KasaPlug : ISmartPlug {
+    public sealed class KasaPlug : ISmartPlug, ISchedulablePlug {
         public const int Port = 9999;
+        /// <summary>Nom des règles créées par le plugin dans le programmateur de la prise (visible dans l'appli Kasa).</summary>
+        private const string RuleName = "NINA AutoStart";
         private const int TimeoutMs = 3000;
         private const string SysInfo = "{\"system\":{\"get_sysinfo\":{}}}";
 
@@ -45,6 +47,150 @@ namespace NINA.Plugin.AutoStart {
         public async Task<FoundPlug> GetInfoAsync(CancellationToken ct = default) {
             using var doc = await SendAsync(SysInfo, ct);
             return ParseSysInfo(Address, doc.RootElement);
+        }
+
+        // ------------------------------------------------------------------ programmateur interne de la prise
+
+        /// <summary>
+        /// La prise exécute ses règles selon SA propre horloge (fuseau réglé dans l'appli Kasa, mise à l'heure par Internet).
+        /// On mesure l'écart avec le PC et on le reporte sur l'heure demandée : l'allumage a lieu à l'heure du PC même si la prise
+        /// n'est pas à l'heure (fuseau différent, pas d'Internet sur le terrain…).
+        /// </summary>
+        public async Task<ScheduleResult> ScheduleAsync(PlugSchedule schedule, CancellationToken ct = default) {
+            var offset = await GetClockOffsetAsync(ct);
+            object rule;
+
+            if (!schedule.IsRepeating) {
+                var plugTime = Minute(schedule.Time + offset);
+                if (plugTime <= DateTime.Now + offset) throw new InvalidOperationException("l'heure d'allumage est déjà passée");
+                var wday = new int[7];                   // dimanche = indice 0
+                wday[(int)plugTime.DayOfWeek] = 1;
+                rule = Rule(plugTime.Hour * 60 + plugTime.Minute, wday, repeat: 0, plugTime.Year, plugTime.Month, plugTime.Day);
+            } else {
+                if (schedule.Days.Length != 7 || !schedule.Days.Any(d => d)) throw new InvalidOperationException("aucun jour choisi");
+                // L'écart d'horloge peut faire passer l'heure de la prise sur le jour précédent ou suivant : on décale aussi les jours.
+                int minutes = schedule.Time.Hour * 60 + schedule.Time.Minute + (int)Math.Round(offset.TotalMinutes);
+                int dayShift = (int)Math.Floor(minutes / 1440.0);
+                minutes -= dayShift * 1440;
+                var wday = new int[7];
+                for (int i = 0; i < 7; i++) {
+                    if (schedule.Days[i]) wday[((i + dayShift) % 7 + 7) % 7] = 1;
+                }
+                rule = Rule(minutes, wday, repeat: 1, 0, 0, 0);
+            }
+
+            await CancelScheduleAsync(ct);
+            var json = JsonSerializer.Serialize(new {
+                schedule = new {
+                    add_rule = rule,
+                    set_overall_enable = new { enable = 1 }
+                }
+            });
+            using var doc = await SendAsync(json, ct);
+            CheckError(doc.RootElement.GetProperty("schedule").GetProperty("add_rule"));
+
+            var normalized = schedule with { Time = Minute(schedule.Time) };
+            NINA.Core.Utility.Logger.Info($"AutoStart : allumage programmé dans la prise {Address} : {Describe(normalized)} (écart d'horloge {offset})");
+            return new ScheduleResult(normalized, offset);
+        }
+
+        private static object Rule(int smin, int[] wday, int repeat, int year, int month, int day) => new {
+            stime_opt = 0,
+            wday,
+            smin,
+            enable = 1,
+            repeat,
+            etime_opt = -1,
+            name = RuleName,
+            eact = -1,
+            month,
+            sact = 1,                                    // action : allumer
+            year,
+            longitude = 0,
+            day,
+            force = 0,
+            latitude = 0,
+            emin = 0
+        };
+
+        private static DateTime Minute(DateTime t) => new DateTime(t.Year, t.Month, t.Day, t.Hour, t.Minute, 0);
+
+        public static string Describe(PlugSchedule s) {
+            if (!s.IsRepeating) return $"le {s.Time:dd/MM/yyyy} à {s.Time:HH\\:mm}";
+            if (s.Days.All(d => d)) return $"tous les jours à {s.Time:HH\\:mm}";
+            var names = Enumerable.Range(0, 7).Select(i => (i + 1) % 7)          // lundi d'abord
+                .Where(i => s.Days[i])
+                .Select(i => System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetDayName((DayOfWeek)i));
+            return $"les {string.Join(", ", names)} à {s.Time:HH\\:mm}";
+        }
+
+        public async Task CancelScheduleAsync(CancellationToken ct = default) {
+            foreach (var r in await GetOurRulesAsync(ct)) {
+                using var doc = await SendAsync(JsonSerializer.Serialize(new { schedule = new { delete_rule = new { id = r.Id } } }), ct);
+                CheckError(doc.RootElement.GetProperty("schedule").GetProperty("delete_rule"));
+            }
+        }
+
+        public async Task<PlugSchedule> GetScheduleAsync(CancellationToken ct = default) {
+            var rule = (await GetOurRulesAsync(ct)).FirstOrDefault(r => r.Enabled);
+            if (rule == null) return null;
+            var offset = await GetClockOffsetAsync(ct);
+            int offMin = (int)Math.Round(offset.TotalMinutes);
+
+            if (!rule.Repeat) {
+                if (rule.Year <= 0) return null;
+                var plugTime = new DateTime(rule.Year, rule.Month, rule.Day, rule.Minutes / 60, rule.Minutes % 60, 0);
+                return new PlugSchedule(plugTime - offset, null);
+            }
+            int minutes = rule.Minutes - offMin;
+            int dayShift = (int)Math.Floor(minutes / 1440.0);
+            minutes -= dayShift * 1440;
+            var days = new bool[7];
+            for (int i = 0; i < 7; i++) {
+                if (rule.WeekDays[i]) days[((i + dayShift) % 7 + 7) % 7] = true;
+            }
+            return new PlugSchedule(DateTime.Today.AddMinutes(minutes), days);
+        }
+
+        private record KasaRule(string Id, bool Enabled, bool Repeat, int Minutes, bool[] WeekDays, int Year, int Month, int Day);
+
+        /// <summary>Règles « NINA AutoStart » enregistrées dans la prise.</summary>
+        private async Task<List<KasaRule>> GetOurRulesAsync(CancellationToken ct) {
+            using var doc = await SendAsync("{\"schedule\":{\"get_rules\":{}}}", ct);
+            var result = new List<KasaRule>();
+            var rules = doc.RootElement.GetProperty("schedule").GetProperty("get_rules");
+            if (!rules.TryGetProperty("rule_list", out var list) || list.ValueKind != JsonValueKind.Array) return result;
+            foreach (var r in list.EnumerateArray()) {
+                if (!r.TryGetProperty("name", out var n) || n.GetString() != RuleName) continue;
+                int Int(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+                var wday = new bool[7];
+                if (r.TryGetProperty("wday", out var w) && w.ValueKind == JsonValueKind.Array) {
+                    int i = 0;
+                    foreach (var d in w.EnumerateArray()) { if (i < 7) wday[i] = d.GetInt32() == 1; i++; }
+                }
+                result.Add(new KasaRule(r.GetProperty("id").GetString(), Int("enable") == 1, Int("repeat") == 1,
+                                        Int("smin"), wday, Int("year"), Int("month"), Int("day")));
+            }
+            return result;
+        }
+
+        /// <summary>Horloge de la prise moins horloge du PC.</summary>
+        private async Task<TimeSpan> GetClockOffsetAsync(CancellationToken ct) {
+            using var doc = await SendAsync("{\"time\":{\"get_time\":{}}}", ct);
+            var t = doc.RootElement.GetProperty("time").GetProperty("get_time");
+            CheckError(t);
+            var plugNow = new DateTime(t.GetProperty("year").GetInt32(), t.GetProperty("month").GetInt32(), t.GetProperty("mday").GetInt32(),
+                                       t.GetProperty("hour").GetInt32(), t.GetProperty("min").GetInt32(), t.GetProperty("sec").GetInt32());
+            var offset = plugNow - DateTime.Now;
+            // Écart inférieur à une minute : on le considère comme nul (simple décalage de lecture).
+            return Math.Abs(offset.TotalSeconds) < 60 ? TimeSpan.Zero : TimeSpan.FromMinutes(Math.Round(offset.TotalMinutes));
+        }
+
+        private static void CheckError(JsonElement e) {
+            if (e.TryGetProperty("err_code", out var c) && c.GetInt32() != 0) {
+                var msg = e.TryGetProperty("err_msg", out var m) ? m.GetString() : "";
+                throw new InvalidOperationException($"la prise a renvoyé l'erreur {c.GetInt32()} {msg}".Trim());
+            }
         }
 
         // ------------------------------------------------------------------ échange TCP

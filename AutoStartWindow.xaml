@@ -38,6 +38,30 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Jour de la semaine (programmation répétée) -->
+        <Style x:Key="DayToggle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Box" CornerRadius="4" Background="Transparent" BorderBrush="#FF5A6A6E" BorderThickness="1">
+                            <TextBlock Text="{TemplateBinding Content}" Foreground="#FFE8E8E8" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="#FF2E7D32" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#FF2E7D32" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <Style TargetType="GroupBox">
             <Setter Property="Foreground" Value="#FFE8E8E8" />
             <Setter Property="BorderBrush" Value="#FF3C4A4E" />
@@ -83,7 +107,12 @@
                 </DockPanel>
                 <DockPanel Margin="0,0,0,8">
                     <CheckBox DockPanel.Dock="Left" IsChecked="{Binding ConnectEquipment}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />
-                    <TextBlock Text="Connecter tout le matériel avant de lancer la séquence" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <Button DockPanel.Dock="Right" Padding="10,4" Margin="8,0,0,0" Content="Choisir les équipements…" Click="Equipment_Click"
+                            IsEnabled="{Binding ConnectEquipment}" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Connecter le matériel avant de lancer la séquence" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding EquipmentText}" Opacity="0.7" TextWrapping="Wrap" />
+                    </StackPanel>
                 </DockPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Compte à rebours avant le lancement (s) :" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -96,16 +125,7 @@
         <!-- 4. Alimentation du matériel -->
         <GroupBox Header="Alimentation du matériel (prise connectée)">
             <StackPanel>
-                <DockPanel Margin="0,0,0,10">
-                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource OnOffToggle}"
-                                  IsChecked="{Binding PowerEnabled, Mode=OneWay}" Click="PowerToggle_Click"
-                                  ToolTip="ON : la prise est coupée à la fin de chaque séquence (et allumée au lancement automatique si l'option est cochée)" />
-                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
-                        <TextBlock Text="Couper l'alimentation à la fin de la séquence" FontWeight="SemiBold" />
-                        <TextBlock Text="séquence simple ou avancée, lancée à la main ou par AutoStart" Opacity="0.75" />
-                    </StackPanel>
-                </DockPanel>
-
+                <!-- Prise : modèle, adresse IP, tests -->
                 <Grid Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="100" />
@@ -140,6 +160,59 @@
                         <TextBlock Text="{Binding PlugStateText}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="330" />
                     </StackPanel>
                 </Grid>
+                <Separator Margin="0,2,0,10" Opacity="0.4" />
+
+                <!-- Programmation de l'allumage (enregistrée dans la prise) -->
+                <DockPanel Margin="0,0,0,8">
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource OnOffToggle}"
+                                  IsChecked="{Binding ScheduleOn, Mode=OneWay}" Click="ScheduleToggle_Click"
+                                  ToolTip="ON : l'heure d'allumage est enregistrée dans la prise elle-même" />
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                        <TextBlock Text="Programmation de l'allumage" FontWeight="SemiBold" />
+                        <TextBlock Text="enregistrée dans la prise : l'allumage a lieu même si le PC est éteint" Opacity="0.75" TextWrapping="Wrap" />
+                    </StackPanel>
+                </DockPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="Répétition :" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox Width="190" ItemsSource="{Binding RepeatOptions}" DisplayMemberPath="Value" SelectedValuePath="Key"
+                              SelectedValue="{Binding ScheduleRepeat}" />
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding ScheduleDayItems}" Margin="0,0,0,6"
+                              Visibility="{Binding IsSomeDays, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ToggleButton Style="{StaticResource DayToggle}" Content="{Binding Label}" ToolTip="{Binding Name}"
+                                          IsChecked="{Binding IsSelected}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="Date :" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <DatePicker Width="150" SelectedDate="{Binding ScheduleDate}" VerticalContentAlignment="Center"
+                                IsEnabled="{Binding IsOnce}" ToolTip="Utilisée seulement pour un allumage unique" />
+                    <TextBlock Text="Heure :" VerticalAlignment="Center" Margin="16,0,8,0" />
+                    <TextBox Width="70" Text="{Binding ScheduleTimeText, UpdateSourceTrigger=LostFocus}"
+                             VerticalContentAlignment="Center" ToolTip="Format HH:mm, par exemple 21:30" />
+                    <Button x:Name="ScheduleButton" Padding="14,4" Margin="16,0,0,0" Content="Programmer" Click="ScheduleApply_Click"
+                            ToolTip="Enregistre cette date et cette heure dans la prise" />
+                </StackPanel>
+                <TextBlock Text="{Binding ScheduleText}" TextWrapping="Wrap" Opacity="0.85" Margin="0,0,0,10" />
+                <Separator Margin="0,0,0,10" Opacity="0.4" />
+
+                <DockPanel Margin="0,0,0,10">
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource OnOffToggle}"
+                                  IsChecked="{Binding PowerEnabled, Mode=OneWay}" Click="PowerToggle_Click"
+                                  ToolTip="ON : la prise est coupée à la fin de chaque séquence (et allumée au lancement automatique si l'option est cochée)" />
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                        <TextBlock Text="Couper l'alimentation à la fin de la séquence" FontWeight="SemiBold" />
+                        <TextBlock Text="séquence simple ou avancée, lancée à la main ou par AutoStart" Opacity="0.75" />
+                    </StackPanel>
+                </DockPanel>
 
                 <DockPanel Margin="0,0,0,6">
                     <CheckBox DockPanel.Dock="Left" IsChecked="{Binding PowerOnAtStartup}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,10,0" />

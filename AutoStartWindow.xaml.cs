@@ -16,16 +16,20 @@ namespace NINA.Plugin.AutoStart {
     public partial class AutoStartWindow : Window, INotifyPropertyChanged {
         private readonly AutoStartSettings settings;
         private readonly IProfileService profileService;
+        private readonly NinaServices nina;
         private readonly AutoStartRunner runner;
 
-        public AutoStartWindow(AutoStartSettings settings, IProfileService profileService, AutoStartRunner runner) {
+        public AutoStartWindow(AutoStartSettings settings, NinaServices nina, AutoStartRunner runner) {
             InitializeComponent();
             WindowTheme.Apply(this);
             this.settings = settings;
-            this.profileService = profileService;
+            this.nina = nina;
+            this.profileService = nina.Profile;
             this.runner = runner;
             if (string.IsNullOrEmpty(settings.ProfileId)) CaptureActiveProfile();
+            ExpirePastSchedule();
             DataContext = this;
+            Loaded += async (s, e) => await VerifyScheduleAsync();
         }
 
         // ------------------------------------------------------------ propriétés affichées
@@ -50,6 +54,17 @@ namespace NINA.Plugin.AutoStart {
             set { settings.ConnectEquipment = value; Changed(); }
         }
 
+        public string EquipmentText {
+            get {
+                try {
+                    return EquipmentCatalog.Summary(settings.EffectiveDevices(profileService.ActiveProfile))
+                           + (settings.DevicesToConnect == null ? " (selon le profil)" : "");
+                } catch {
+                    return string.Empty;
+                }
+            }
+        }
+
         public string DelayText {
             get => settings.DelaySeconds.ToString();
             set {
@@ -58,6 +73,139 @@ namespace NINA.Plugin.AutoStart {
                     Changed();
                 }
             }
+        }
+
+        // --- Programmation de l'allumage ---
+
+        private bool scheduleDirty;
+        private string scheduleInfo = string.Empty;
+
+        private static DateTime DefaultScheduleTime {
+            get {
+                var t = DateTime.Today.AddHours(21);
+                return t > DateTime.Now ? t : t.AddDays(1);
+            }
+        }
+
+        private DateTime WantedScheduleTime => settings.ScheduleOnTime ?? DefaultScheduleTime;
+
+        /// <summary>ON si une programmation a été enregistrée dans la prise (et, pour un allumage unique, pas encore passée).</summary>
+        public bool ScheduleOn => settings.ScheduleOnEnabled
+                                  && (settings.ScheduleRepeat != ScheduleRepeat.Once || settings.ScheduleOnTime > DateTime.Now);
+
+        public IReadOnlyList<KeyValuePair<ScheduleRepeat, string>> RepeatOptions { get; } = new[] {
+            new KeyValuePair<ScheduleRepeat, string>(ScheduleRepeat.Once, "Une seule fois"),
+            new KeyValuePair<ScheduleRepeat, string>(ScheduleRepeat.Daily, "Tous les jours"),
+            new KeyValuePair<ScheduleRepeat, string>(ScheduleRepeat.Days, "Certains jours"),
+        };
+
+        public ScheduleRepeat ScheduleRepeat {
+            get => settings.ScheduleRepeat;
+            set {
+                if (settings.ScheduleRepeat == value) return;
+                settings.ScheduleRepeat = value;
+                MarkScheduleChanged();
+            }
+        }
+
+        public bool IsOnce => settings.ScheduleRepeat == ScheduleRepeat.Once;
+        public bool IsSomeDays => settings.ScheduleRepeat == ScheduleRepeat.Days;
+
+        private List<DayChoice> scheduleDayItems;
+
+        /// <summary>Boutons L M M J V S D (indice DayOfWeek : 0 = dimanche).</summary>
+        public List<DayChoice> ScheduleDayItems => scheduleDayItems ??= Enumerable.Range(0, 7)
+            .Select(i => (DayOfWeek)((i + 1) % 7))
+            .Select(d => new DayChoice(
+                System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(d),
+                () => settings.ScheduleDays != null && settings.ScheduleDays.Length == 7 && settings.ScheduleDays[(int)d],
+                v => {
+                    if (settings.ScheduleDays == null || settings.ScheduleDays.Length != 7) settings.ScheduleDays = new bool[7];
+                    settings.ScheduleDays[(int)d] = v;
+                    MarkScheduleChanged();
+                }))
+            .ToList();
+
+        /// <summary>Prochaine date (aujourd'hui ou demain) à cette heure-là.</summary>
+        private static DateTime NextAt(DateTime time) {
+            var t = DateTime.Today + new TimeSpan(time.Hour, time.Minute, 0);
+            return t > DateTime.Now.AddMinutes(1) ? t : t.AddDays(1);
+        }
+
+        /// <summary>
+        /// Un allumage unique déjà passé : la prise l'a exécuté (ou l'heure est dépassée).
+        /// On repasse sur OFF et on propose la même heure au prochain jour possible.
+        /// </summary>
+        private void ExpirePastSchedule() {
+            if (settings.ScheduleRepeat != ScheduleRepeat.Once || settings.ScheduleOnTime == null) return;
+            var t = settings.ScheduleOnTime.Value;
+            if (t > DateTime.Now) return;
+            if (settings.ScheduleOnEnabled) {
+                scheduleInfo = $"Le dernier allumage programmé ({t:dd/MM/yyyy} à {t:HH\\:mm}) est passé.";
+                settings.ScheduleOnEnabled = false;
+            }
+            settings.ScheduleOnTime = NextAt(t);
+            settings.Save();
+        }
+
+        private void MarkScheduleChanged() {
+            if (settings.ScheduleOnEnabled) scheduleDirty = true;
+            Changed();
+        }
+
+        public DateTime? ScheduleDate {
+            get => WantedScheduleTime.Date;
+            set {
+                if (value == null) return;
+                SetWantedScheduleTime(value.Value.Date + WantedScheduleTime.TimeOfDay);
+            }
+        }
+
+        public string ScheduleTimeText {
+            get => WantedScheduleTime.ToString("HH:mm");
+            set {
+                var text = (value ?? string.Empty).Trim().Replace('h', ':').Replace('H', ':').Replace('.', ':');
+                if (text.EndsWith(":")) text += "00";
+                if (TimeSpan.TryParse(text, out var time) && time >= TimeSpan.Zero && time < TimeSpan.FromDays(1)) {
+                    SetWantedScheduleTime(WantedScheduleTime.Date + new TimeSpan(time.Hours, time.Minutes, 0));
+                } else {
+                    OnPropertyChanged(nameof(ScheduleTimeText));   // valeur invalide : on réaffiche l'ancienne
+                }
+            }
+        }
+
+        private void SetWantedScheduleTime(DateTime time) {
+            if (settings.ScheduleOnTime == time) return;
+            settings.ScheduleOnTime = time;
+            MarkScheduleChanged();
+        }
+
+        public string ScheduleText {
+            get {
+                if (!string.IsNullOrEmpty(busyText)) return busyText;
+                var t = WantedScheduleTime;
+                if (settings.ScheduleOnEnabled && scheduleDirty) {
+                    return "Date ou heure modifiée : clique sur « Programmer » pour l'enregistrer dans la prise.";
+                }
+                if (ScheduleOn) {
+                    if (IsOnce) return $"Allumage programmé le {t:dddd dd/MM/yyyy} à {t:HH\\:mm} {scheduleInfo}".Trim();
+                    var next = NextOccurrence(settings.WantedSchedule(t));
+                    var nextText = next == null ? "" : $" — prochain : {next:dddd dd/MM} à {next:HH\\:mm}";
+                    return $"Allumage programmé {KasaPlug.Describe(settings.WantedSchedule(t))}{nextText} {scheduleInfo}".Trim();
+                }
+                if (settings.ScheduleOnEnabled) {
+                    return $"La programmation du {t:dd/MM/yyyy} à {t:HH\\:mm} est passée : choisis une nouvelle date ou heure.";
+                }
+                return string.IsNullOrEmpty(scheduleInfo) ? "Aucun allumage programmé." : scheduleInfo;
+            }
+        }
+
+        private string busyText;
+
+        private void SetBusy(string text) {
+            busyText = text;
+            ScheduleButton.IsEnabled = text == null;
+            OnPropertyChanged(nameof(ScheduleText));
         }
 
         // --- Alimentation ---
@@ -206,7 +354,121 @@ namespace NINA.Plugin.AutoStart {
 
         private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
+        private void Equipment_Click(object sender, RoutedEventArgs e) {
+            var dialog = new EquipmentWindow(settings.EffectiveDevices(profileService.ActiveProfile), nina) { Owner = this };
+            if (dialog.ShowDialog() == true) {
+                settings.DevicesToConnect = dialog.Selected;
+                Changed();
+            }
+        }
+
         // ------------------------------------------------------------ alimentation
+
+        private async void ScheduleToggle_Click(object sender, RoutedEventArgs e) {
+            if (ScheduleOn) {
+                await CancelScheduleAsync();
+            } else {
+                await ApplyScheduleAsync();
+            }
+        }
+
+        private async void ScheduleApply_Click(object sender, RoutedEventArgs e) => await ApplyScheduleAsync();
+
+        private async Task ApplyScheduleAsync() {
+            if (!IsValidAddress(settings.PlugAddress)) {
+                scheduleInfo = "Renseigne d'abord l'adresse IP de la prise (ou utilise SCAN).";
+                Changed();
+                return;
+            }
+            var wanted = WantedScheduleTime;
+            string moved = null;
+            if (settings.ScheduleRepeat == ScheduleRepeat.Once && wanted <= DateTime.Now.AddMinutes(1)) {
+                // Heure déjà passée : on prend la même heure au prochain jour possible plutôt que de refuser.
+                wanted = NextAt(wanted);
+                settings.ScheduleOnTime = wanted;
+                moved = $"(l'heure demandée était passée : reportée au {wanted:dddd dd/MM})";
+            }
+            var schedule = settings.WantedSchedule(wanted);
+            if (schedule.IsRepeating && !schedule.Days.Any(d => d)) {
+                scheduleInfo = "Choisis au moins un jour.";
+                Changed();
+                return;
+            }
+            SetBusy("Enregistrement de la programmation dans la prise…");
+            try {
+                var result = await Task.Run(() => PowerManager.ScheduleOnAsync(settings, schedule));
+                settings.ScheduleOnEnabled = true;
+                settings.ScheduleOnTime = result.Schedule.Time;
+                scheduleDirty = false;
+                scheduleInfo = result.ClockOffset == TimeSpan.Zero
+                    ? "(enregistré dans la prise)"
+                    : $"(enregistré dans la prise ; son horloge a {FormatOffset(result.ClockOffset)} d'écart avec le PC, écart compensé)";
+                if (moved != null) scheduleInfo = moved + " " + scheduleInfo;
+            } catch (Exception ex) {
+                settings.ScheduleOnEnabled = false;
+                scheduleDirty = false;
+                scheduleInfo = $"Programmation impossible : {ex.Message}";
+            } finally {
+                SetBusy(null);
+                Changed();
+            }
+        }
+
+        private async Task CancelScheduleAsync() {
+            SetBusy("Suppression de la programmation dans la prise…");
+            try {
+                if (IsValidAddress(settings.PlugAddress)) {
+                    await Task.Run(() => PowerManager.CancelScheduleAsync(settings));
+                }
+                scheduleInfo = "Programmation supprimée.";
+            } catch (Exception ex) {
+                scheduleInfo = $"⚠ La prise n'a pas pu être jointe ({ex.Message}) : la programmation y est peut-être encore enregistrée.";
+            } finally {
+                settings.ScheduleOnEnabled = false;
+                scheduleDirty = false;
+                SetBusy(null);
+                Changed();
+            }
+        }
+
+        /// <summary>À l'ouverture : vérifie que la prise a toujours la programmation (elle peut avoir été réinitialisée).</summary>
+        private async Task VerifyScheduleAsync() {
+            if (!ScheduleOn || !IsValidAddress(settings.PlugAddress)) return;
+            try {
+                var inPlug = await Task.Run(() => PowerManager.GetScheduleAsync(settings));
+                if (inPlug == null) {
+                    scheduleInfo = "⚠ introuvable dans la prise : clique sur « Programmer » pour l'enregistrer à nouveau.";
+                } else if (!SameSchedule(inPlug, settings.WantedSchedule(WantedScheduleTime))) {
+                    scheduleInfo = $"⚠ la prise indique {KasaPlug.Describe(inPlug)} : clique sur « Programmer » pour corriger.";
+                } else {
+                    scheduleInfo = "(confirmé par la prise)";
+                }
+            } catch {
+                scheduleInfo = "(prise injoignable, programmation non vérifiée)";
+            }
+            OnPropertyChanged(nameof(ScheduleText));
+        }
+
+        private static bool SameSchedule(PlugSchedule a, PlugSchedule b) {
+            if (a.IsRepeating != b.IsRepeating) return false;
+            if (!a.IsRepeating) return Math.Abs((a.Time - b.Time).TotalMinutes) <= 1;
+            return Math.Abs((a.Time.TimeOfDay - b.Time.TimeOfDay).TotalMinutes) <= 1 && a.Days.SequenceEqual(b.Days);
+        }
+
+        private static DateTime? NextOccurrence(PlugSchedule s) {
+            if (!s.IsRepeating) return s.Time;
+            for (int i = 0; i < 8; i++) {
+                var day = DateTime.Today.AddDays(i);
+                var when = day + new TimeSpan(s.Time.Hour, s.Time.Minute, 0);
+                if (s.Days[(int)day.DayOfWeek] && when > DateTime.Now) return when;
+            }
+            return null;
+        }
+
+        private static string FormatOffset(TimeSpan offset) {
+            var abs = offset.Duration();
+            return abs.TotalHours >= 1 ? $"{(int)abs.TotalHours} h {abs.Minutes:00}" : $"{abs.Minutes} min";
+        }
 
         private void PowerToggle_Click(object sender, RoutedEventArgs e) {
             if (!settings.PowerEnabled && !IsValidAddress(settings.PlugAddress)) {
@@ -301,5 +563,28 @@ namespace NINA.Plugin.AutoStart {
 
         private void OnPropertyChanged([CallerMemberName] string name = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    /// <summary>Un jour de la semaine dans la programmation répétée.</summary>
+    public class DayChoice : INotifyPropertyChanged {
+        private readonly Func<bool> read;
+        private readonly Action<bool> write;
+
+        public DayChoice(string name, Func<bool> get, Action<bool> set) {
+            Name = name;
+            Label = name.Substring(0, 1).ToUpperInvariant();
+            read = get;
+            write = set;
+        }
+
+        public string Name { get; }
+        public string Label { get; }
+
+        public bool IsSelected {
+            get => read();
+            set { write(value); PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected))); }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
     }
 }
